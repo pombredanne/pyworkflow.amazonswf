@@ -1,8 +1,8 @@
 import json
 from datetime import datetime
 
-from pyworkflow.process import Process
-from pyworkflow.events import Event, DecisionEvent, ActivityEvent, ActivityStartedEvent, SignalEvent
+from pyworkflow.process import Process, ProcessCompleted, ProcessCanceled, ProcessTimedOut
+from pyworkflow.events import Event, DecisionEvent, ActivityEvent, ActivityStartedEvent, SignalEvent, ChildProcessEvent
 from pyworkflow.signal import Signal
 from pyworkflow.activity import ActivityCompleted, ActivityCanceled, ActivityFailed, ActivityTimedOut, ActivityExecution
 from pyworkflow.decision import ScheduleActivity
@@ -17,7 +17,12 @@ class AmazonSWFProcess(Process):
         def activity_event_with_result(result):
             scheduled_by = filter(lambda x: x['eventId'] == attributes['scheduledEventId'], related)[0]
             attrs = scheduled_by.get('activityTaskScheduledEventAttributes', None)
-            input = json.loads(attrs['input']) if attrs.get('input', None) else None
+            
+            try:
+                input = json.loads(attrs['input']) if attrs.get('input', None) else None
+            except:
+                input = attrs.get('input', None)
+
             activity_execution = ActivityExecution(attrs['activityType']['name'], attrs['activityId'], input)
             if result:
                 return ActivityEvent(datetime=event_dt, activity_execution=activity_execution, result=result)
@@ -46,9 +51,20 @@ class AmazonSWFProcess(Process):
             details = attributes.get('details', None)
             return activity_event_with_result(ActivityTimedOut(details=details))
         elif event_type == 'WorkflowExecutionSignaled':
-            data = json.loads(attributes['input']) if 'input' in attributes.keys() else None
+            try:
+                data = json.loads(attributes['input']) if 'input' in attributes.keys() else None
+            except:
+                data = attributes.get('input', None)
             name = attributes['signalName']
             return SignalEvent(datetime=event_dt, signal=Signal(name=name, data=data))
+        elif event_type == 'ChildWorkflowExecutionCompleted':
+            result = json.loads(attributes['result']) if 'result' in attributes.keys() else None
+            return ChildProcessEvent(datetime=event_dt, process_id=attributes['workflowExecution']['workflowId'], result=ProcessCompleted(result=result))
+        elif event_type == 'ChildWorkflowExecutionCanceled':
+            details = attributes.get('details', None)
+            return ChildProcessEvent(datetime=event_dt, process_id=attributes['workflowExecution']['workflowId'], result=ProcessCanceled(details=details))
+        elif event_type == 'ChildWorkflowExecutionTimedOut':
+            return ChildProcessEvent(datetime=event_dt, process_id=attributes['workflowExecution']['workflowId'], result=ProcessTimedOut())
         else:
             return None
 
@@ -68,7 +84,10 @@ class AmazonSWFProcess(Process):
         for event_description in event_descriptions:
             start_attrs = event_description.get('workflowExecutionStartedEventAttributes', None)
             if start_attrs:
-                input = json.loads(start_attrs['input'])
+                try:
+                    input = json.loads(start_attrs['input'])
+                except:
+                    input = start_attrs.get('input', None)
                 tags = start_attrs['tagList']
                 parent = start_attrs.get('parentWorkflowExecution', {}).get('workflowId', None)
 
