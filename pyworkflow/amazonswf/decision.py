@@ -1,4 +1,5 @@
 import json
+import uuid
 
 from pyworkflow.decision import ScheduleActivity, CompleteProcess, CancelProcess, StartChildProcess
 
@@ -51,6 +52,10 @@ class AmazonSWFDecision(object):
         }
         
     def start_child_process_description(self, decision):
+        if decision.process.id is not None:
+            raise ValueError('AmazonSWF does not support manually assigned ids on a process. Process.id should be None.')
+
+        
         return {
             "decisionType": "StartChildWorkflowExecution",
             "startChildWorkflowExecutionDecisionAttributes": {
@@ -58,7 +63,7 @@ class AmazonSWFDecision(object):
                     'name': decision.process.workflow,
                     'version': "1.0"
                 },
-                'workflowId': decision.process.id,
+                'workflowId': str(uuid.uuid4()),
                 'input': json.dumps(decision.process.input),
                 'tagList': decision.process.tags
             }

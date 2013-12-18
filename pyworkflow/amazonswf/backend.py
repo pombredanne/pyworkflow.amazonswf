@@ -67,25 +67,30 @@ class AmazonSWFBackend(Backend):
                 default_task_start_to_close_timeout=str(execution_timeout))
     
     def start_process(self, process):
+        if process.id is not None:
+            raise ValueError('AmazonSWF does not support manually assigned ids on a process. Process.id should be None.')
+
         if process.tags and len(process.tags) > 5:
             raise ValueError('AmazonSWF supports a maximum of 5 tags per process')
 
-        if process.parent:
+        if process.parent is not None:
             raise ValueError('AmazonSWF does not support starting child tasks directly. Use StartChildProcess decision instead.')
 
         self._swf.start_workflow_execution(
-            self.domain, process.id, process.workflow, "1.0",
+            self.domain, str(uuid.uuid4()), process.workflow, "1.0",
             input=json.dumps(process.input),
             tag_list=process.tags)
         
-    def signal_process(self, process, signal, data=None):
+    def signal_process(self, process_or_id, signal, data=None):
+        pid = process_or_id.id if hasattr(process_or_id, 'id') else process_or_id
         self._swf.signal_workflow_execution(
-            self.domain, signal, process.id, 
+            self.domain, signal, pid.split(':')[0],
             input=json.dumps(data))
 
-    def cancel_process(self, process, details=None, reason=None):
+    def cancel_process(self, process_or_id, details=None, reason=None):
+        pid = process_or_id.id if hasattr(process_or_id, 'id') else process_or_id
         self._swf.terminate_workflow_execution(
-            self.domain, process.id, 
+            self.domain, pid.split(':')[0], 
             details=details,
             reason=reason)
 
@@ -122,6 +127,29 @@ class AmazonSWFBackend(Backend):
                 raise UnknownActivityException()
             else:
                 raise e
+
+    def _workflow_execution_history(self, description):
+        run_id = description['execution']['runId']
+        workflow_id = description['execution']['workflowId']
+
+        # exhaustively query execution history using next_page_token
+        response_iter = self._consume_until_exhaustion(
+            lambda token: self._swf.get_workflow_execution_history(self.domain, run_id, workflow_id, next_page_token=token),
+        )
+
+        return {'events': [ev for response in response_iter for ev in response['events']]}
+
+    def _process_from_description(self, description):
+        # get and fill in event history
+        history = self._workflow_execution_history(description)
+        description.update(history)  
+        process = AmazonSWFProcess.from_description(description)
+        return process
+
+    def process_by_id(self, process_id):
+        workflow_id, run_id = process_id.split(':')
+        description = self._swf.describe_workflow_execution(self.domain, run_id, workflow_id)
+        return self._process_from_description(description['executionInfo'])
     
     def processes(self, workflow=None, tag=None):
         if workflow and tag:
@@ -131,28 +159,11 @@ class AmazonSWFBackend(Backend):
         after_date = datetime.now() - timedelta(days=365)
         oldest_timestamp = time.mktime(after_date.timetuple())
 
-        def get_history(description):
-            run_id = description['execution']['runId']
-            workflow_id = description['execution']['workflowId']
-
-            # exhaustively query execution history using next_page_token
-            response_iter = self._consume_until_exhaustion(
-                lambda token: self._swf.get_workflow_execution_history(self.domain, run_id, workflow_id, next_page_token=token),
-            )
-
-            return {'events': [ev for response in response_iter for ev in response['events']]}
-
-        def mk_process(description):
-            # get and fill in event history
-            history = get_history(description)
-            description.update(history)  
-            return AmazonSWFProcess.from_description(description)                
-
         response_iter = self._consume_until_exhaustion(
             lambda token: self._swf.list_open_workflow_executions(self.domain, oldest_timestamp, workflow_name=workflow, tag=tag if input else None, next_page_token=token)
         )
 
-        return imap(lambda d: mk_process(d), (d for response in response_iter for d in response['executionInfos']))
+        return imap(lambda d: self._process_from_description(d), (d for response in response_iter for d in response['executionInfos']))
 
     def poll_activity_task(self, category="default", identity=None):
         description = self._swf.poll_for_activity_task(self.domain, category, identity=identity)

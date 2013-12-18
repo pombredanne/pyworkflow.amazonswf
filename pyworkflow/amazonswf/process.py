@@ -8,8 +8,8 @@ from pyworkflow.activity import ActivityCompleted, ActivityCanceled, ActivityFai
 from pyworkflow.decision import ScheduleActivity
 
 class AmazonSWFProcess(Process):
-    @staticmethod
-    def event_from_description(description, related=[]):
+    @classmethod
+    def event_from_description(cls, description, related=[]):
         event_type = description['eventType']
         event_dt = datetime.fromtimestamp(description['eventTimestamp'])
         attributes = description.get(event_type[0].lower() + event_type[1:] + 'EventAttributes', {})
@@ -59,12 +59,15 @@ class AmazonSWFProcess(Process):
             return SignalEvent(datetime=event_dt, signal=Signal(name=name, data=data))
         elif event_type == 'ChildWorkflowExecutionCompleted':
             result = json.loads(attributes['result']) if 'result' in attributes.keys() else None
-            return ChildProcessEvent(datetime=event_dt, process_id=attributes['workflowExecution']['workflowId'], result=ProcessCompleted(result=result))
+            pid = cls.pid_from_description(attributes['workflowExecution'])
+            return ChildProcessEvent(datetime=event_dt, process_id=pid, result=ProcessCompleted(result=result))
         elif event_type == 'ChildWorkflowExecutionCanceled':
             details = attributes.get('details', None)
-            return ChildProcessEvent(datetime=event_dt, process_id=attributes['workflowExecution']['workflowId'], result=ProcessCanceled(details=details))
+            pid = cls.pid_from_description(attributes['workflowExecution'])
+            return ChildProcessEvent(datetime=event_dt, process_id=pid, result=ProcessCanceled(details=details))
         elif event_type == 'ChildWorkflowExecutionTimedOut':
-            return ChildProcessEvent(datetime=event_dt, process_id=attributes['workflowExecution']['workflowId'], result=ProcessTimedOut())
+            pid = cls.pid_from_description(attributes['workflowExecution'])
+            return ChildProcessEvent(datetime=event_dt, process_id=pid, result=ProcessTimedOut())
         else:
             return None
 
@@ -74,7 +77,7 @@ class AmazonSWFProcess(Process):
         if not execution_desc:
             return None
 
-        pid = execution_desc['workflowId']
+        pid = cls.pid_from_description(execution_desc)
 
         workflow = description.get('workflowType', {}).get('name', None)
         tags = description.get('tagList', [])
@@ -89,10 +92,21 @@ class AmazonSWFProcess(Process):
                 except:
                     input = start_attrs.get('input', None)
                 tags = start_attrs['tagList']
-                parent = start_attrs.get('parentWorkflowExecution', {}).get('workflowId', None)
+                
+                parent = None
+                parent_wfe = start_attrs.get('parentWorkflowExecution', None)
+                if parent_wfe:
+                    parent = cls.pid_from_description(parent_wfe)
+
 
             event = cls.event_from_description(event_description, related=event_descriptions)
             if event:
                 history.append(event)
 
         return AmazonSWFProcess(id=pid, workflow=workflow, input=input, tags=tags, history=history, parent=parent)
+
+    @classmethod
+    def pid_from_description(cls, description):
+        return '%s:%s' % (description['workflowId'], description['runId'])
+            
+    
