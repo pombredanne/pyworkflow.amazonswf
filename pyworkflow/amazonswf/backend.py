@@ -36,7 +36,7 @@ class AmazonSWFBackend(Backend):
             response = request_fn(next_page_token)
             yield response
 
-            next_page_token = response.get('next_page_token', None)
+            next_page_token = response.get('nextPageToken', None)
             if not next_page_token:
                 break
     

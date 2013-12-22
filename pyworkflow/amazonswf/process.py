@@ -5,7 +5,7 @@ from pyworkflow.process import Process, ProcessCompleted, ProcessCanceled, Proce
 from pyworkflow.events import Event, DecisionEvent, ActivityEvent, ActivityStartedEvent, SignalEvent, ChildProcessEvent
 from pyworkflow.signal import Signal
 from pyworkflow.activity import ActivityCompleted, ActivityCanceled, ActivityFailed, ActivityTimedOut, ActivityExecution
-from pyworkflow.decision import ScheduleActivity
+from pyworkflow.decision import ScheduleActivity, StartChildProcess
 
 class AmazonSWFProcess(Process):
     @classmethod
@@ -57,6 +57,10 @@ class AmazonSWFProcess(Process):
                 data = attributes.get('input', None)
             name = attributes['signalName']
             return SignalEvent(datetime=event_dt, signal=Signal(name=name, data=data))
+        elif event_type == 'StartChildWorkflowExecutionInitiated':
+            input = json.loads(attributes['input']) if attributes.get('input', None) else None
+            process = Process(workflow=attributes['workflowType']['name'], input=input, tags=attributes['tagList'])
+            return DecisionEvent(datetime=event_dt, decision=StartChildProcess(process=process))
         elif event_type == 'ChildWorkflowExecutionCompleted':
             result = json.loads(attributes['result']) if 'result' in attributes.keys() else None
             pid = cls.pid_from_description(attributes['workflowExecution'])
