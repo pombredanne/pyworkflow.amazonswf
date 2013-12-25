@@ -1,12 +1,14 @@
 import json
 import uuid
 
-from pyworkflow.decision import ScheduleActivity, CompleteProcess, CancelProcess, StartChildProcess
+from pyworkflow.decision import ScheduleActivity, CancelActivity, CompleteProcess, CancelProcess, StartChildProcess
 
 class AmazonSWFDecision(object):
     def __init__(self, decision):
         if isinstance(decision, ScheduleActivity):
             description = self.schedule_activity_description(decision)
+        elif isinstance(decision, CancelActivity):
+            description = self.cancel_activity_description(decision)
         elif isinstance(decision, CompleteProcess):
             description = self.complete_process_description(decision)
         elif isinstance(decision, CancelProcess):
@@ -32,6 +34,14 @@ class AmazonSWFDecision(object):
                 "taskList": {
                     "name": decision.category or "default"
                 }
+            }
+        }
+
+    def cancel_activity_description(self, decision):
+        return {
+            "decisionType": "RequestCancelActivityTask",
+            "requestCancelActivityTaskDecisionAttributes": {
+                "activityId": decision.id
             }
         }
 
