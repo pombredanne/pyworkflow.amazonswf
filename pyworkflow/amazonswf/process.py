@@ -5,7 +5,7 @@ from pyworkflow.process import Process, ProcessCompleted, ProcessCanceled, Proce
 from pyworkflow.events import Event, DecisionEvent, ActivityEvent, ActivityStartedEvent, SignalEvent, ChildProcessEvent
 from pyworkflow.signal import Signal
 from pyworkflow.activity import ActivityCompleted, ActivityCanceled, ActivityFailed, ActivityTimedOut, ActivityExecution
-from pyworkflow.decision import ScheduleActivity, StartChildProcess
+from pyworkflow.decision import ScheduleActivity, StartChildProcess, Timer
 
 class AmazonSWFProcess(Process):
     @classmethod
@@ -72,6 +72,8 @@ class AmazonSWFProcess(Process):
         elif event_type == 'ChildWorkflowExecutionTimedOut':
             pid = cls.pid_from_description(attributes['workflowExecution'])
             return ChildProcessEvent(datetime=event_dt, process_id=pid, result=ProcessTimedOut())
+        elif event_type == 'TimerStarted':
+            return DecisionEvent(datetime=event_dt, decision=Timer(delay=int(attributes['startToFireTimeout'])))
         else:
             return None
 

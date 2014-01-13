@@ -49,6 +49,10 @@ class AmazonSWFBackendTestCase(WorkflowBackendTestCase):
     def test_order(self):
         self.subtest_order()
 
+    def test_timer(self):
+        self.subtest_timer()
+    
+
 class AmazonSWFBackendThreadTestCase(WorkflowBackendTestCase):
     def setUp(self):
         super(AmazonSWFBackendThreadTestCase, self).setUp()

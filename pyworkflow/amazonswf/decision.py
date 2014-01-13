@@ -1,7 +1,7 @@
 import json
 import uuid
 
-from pyworkflow.decision import ScheduleActivity, CancelActivity, CompleteProcess, CancelProcess, StartChildProcess
+from pyworkflow.decision import ScheduleActivity, CancelActivity, CompleteProcess, CancelProcess, StartChildProcess, Timer
 
 class AmazonSWFDecision(object):
     def __init__(self, decision):
@@ -15,6 +15,8 @@ class AmazonSWFDecision(object):
             description = self.cancel_process_description(decision)
         elif isinstance(decision, StartChildProcess):
             description = self.start_child_process_description(decision)
+        elif isinstance(decision, Timer):
+            description = self.timer_description(decision)
         else:
             raise Exception('Invalid decision type')
 
@@ -65,7 +67,6 @@ class AmazonSWFDecision(object):
         if decision.process.id is not None:
             raise ValueError('AmazonSWF does not support manually assigned ids on a process. Process.id should be None.')
 
-        
         return {
             "decisionType": "StartChildWorkflowExecution",
             "startChildWorkflowExecutionDecisionAttributes": {
@@ -76,5 +77,14 @@ class AmazonSWFDecision(object):
                 'workflowId': str(uuid.uuid4()),
                 'input': json.dumps(decision.process.input),
                 'tagList': decision.process.tags
+            }
+        }
+
+    def timer_description(self, decision):
+        return {
+            "decisionType": "StartTimer",
+            "startTimerDecisionAttributes": {
+                "startToFireTimeout": str(decision.delay),
+                "timerId": str(uuid.uuid4())
             }
         }
