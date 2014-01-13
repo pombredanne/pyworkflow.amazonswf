@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 
 from pyworkflow.process import Process, ProcessCompleted, ProcessCanceled, ProcessTimedOut
-from pyworkflow.events import Event, DecisionEvent, ActivityEvent, ActivityStartedEvent, SignalEvent, ChildProcessEvent
+from pyworkflow.events import Event, DecisionEvent, ActivityEvent, ActivityStartedEvent, SignalEvent, ChildProcessEvent, TimerEvent
 from pyworkflow.signal import Signal
 from pyworkflow.activity import ActivityCompleted, ActivityCanceled, ActivityFailed, ActivityTimedOut, ActivityExecution
 from pyworkflow.decision import ScheduleActivity, StartChildProcess, Timer
@@ -73,7 +73,11 @@ class AmazonSWFProcess(Process):
             pid = cls.pid_from_description(attributes['workflowExecution'])
             return ChildProcessEvent(datetime=event_dt, process_id=pid, result=ProcessTimedOut())
         elif event_type == 'TimerStarted':
-            return DecisionEvent(datetime=event_dt, decision=Timer(delay=int(attributes['startToFireTimeout'])))
+            return DecisionEvent(datetime=event_dt, decision=Timer(delay=int(attributes['startToFireTimeout']), data=json.loads(attributes['control'])))
+        elif event_type == 'TimerFired':
+            started_by = filter(lambda x: x['eventId'] == attributes['startedEventId'], related)[0]
+            started_attrs = started_by['timerStartedEventAttributes']
+            return TimerEvent(datetime=event_dt, timer=Timer(delay=int(started_attrs['startToFireTimeout']), data=json.loads(started_attrs['control'])))
         else:
             return None
 

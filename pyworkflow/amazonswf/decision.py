@@ -84,7 +84,8 @@ class AmazonSWFDecision(object):
         return {
             "decisionType": "StartTimer",
             "startTimerDecisionAttributes": {
+                "timerId": str(uuid.uuid4()),
                 "startToFireTimeout": str(decision.delay),
-                "timerId": str(uuid.uuid4())
+                "control": json.dumps(decision.data)
             }
         }
