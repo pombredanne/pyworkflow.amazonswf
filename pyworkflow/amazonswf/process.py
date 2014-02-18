@@ -61,17 +61,24 @@ class AmazonSWFProcess(Process):
             input = json.loads(attributes['input']) if attributes.get('input', None) else None
             process = Process(workflow=attributes['workflowType']['name'], input=input, tags=attributes['tagList'])
             return DecisionEvent(datetime=event_dt, decision=StartChildProcess(process=process))
-        elif event_type == 'ChildWorkflowExecutionCompleted':
-            result = json.loads(attributes['result']) if 'result' in attributes.keys() else None
-            pid = cls.pid_from_description(attributes['workflowExecution'])
-            return ChildProcessEvent(datetime=event_dt, process_id=pid, result=ProcessCompleted(result=result))
-        elif event_type == 'ChildWorkflowExecutionCanceled':
-            details = attributes.get('details', None)
-            pid = cls.pid_from_description(attributes['workflowExecution'])
-            return ChildProcessEvent(datetime=event_dt, process_id=pid, result=ProcessCanceled(details=details))
-        elif event_type == 'ChildWorkflowExecutionTimedOut':
-            pid = cls.pid_from_description(attributes['workflowExecution'])
-            return ChildProcessEvent(datetime=event_dt, process_id=pid, result=ProcessTimedOut())
+        elif event_type.startswith('ChildWorkflowExecution'):
+            initiated_by = filter(lambda x: x['eventId'] == attributes['initiatedEventId'], related)[0]
+            initiated_attr = initiated_by['startChildWorkflowExecutionInitiatedEventAttributes']
+            tags = initiated_attr['tagList']
+            workflow = initiated_attr['workflowType']['name']
+            
+            if event_type == 'ChildWorkflowExecutionCompleted':
+                result = json.loads(attributes['result']) if 'result' in attributes.keys() else None
+                pid = cls.pid_from_description(attributes['workflowExecution'])
+                return ChildProcessEvent(datetime=event_dt, process_id=pid, result=ProcessCompleted(result=result), workflow=workflow, tags=tags)
+            elif event_type == 'ChildWorkflowExecutionCanceled':
+                details = attributes.get('details', None)
+                pid = cls.pid_from_description(attributes['workflowExecution'])
+                return ChildProcessEvent(datetime=event_dt, process_id=pid, result=ProcessCanceled(details=details), workflow=workflow, tags=tags)
+            elif event_type == 'ChildWorkflowExecutionTimedOut':
+                pid = cls.pid_from_description(attributes['workflowExecution'])
+                return ChildProcessEvent(datetime=event_dt, process_id=pid, result=ProcessTimedOut(), workflow=workflow, tags=tags)
+
         elif event_type == 'TimerStarted':
             return DecisionEvent(datetime=event_dt, decision=Timer(delay=int(attributes['startToFireTimeout']), data=json.loads(attributes['control'])))
         elif event_type == 'TimerFired':
