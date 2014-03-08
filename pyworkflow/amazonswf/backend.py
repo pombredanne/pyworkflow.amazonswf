@@ -137,12 +137,12 @@ class AmazonSWFBackend(Backend):
             lambda token: self._swf.get_workflow_execution_history(self.domain, run_id, workflow_id, next_page_token=token),
         )
 
-        return {'events': [ev for response in response_iter for ev in response['events']]}
+        return {'events': [ev for response in response_iter for ev in response.get('events', [])]}
 
     def _process_from_description(self, description):
         # get and fill in event history
         history = self._workflow_execution_history(description)
-        description.update(history)  
+        description.update(history)
         process = AmazonSWFProcess.from_description(description)
         return process
 
@@ -170,5 +170,13 @@ class AmazonSWFBackend(Backend):
         return activity_task_from_description(description) if description else None
 
     def poll_decision_task(self, identity=None):
-        description = self._swf.poll_for_decision_task(self.domain, "decisions", identity=identity)
-        return decision_task_from_description(description) if description else None
+        response_iter = self._consume_until_exhaustion(
+            lambda token: self._swf.poll_for_decision_task(self.domain, "decisions", identity=identity, next_page_token=token),
+        )
+
+        description = next(response_iter, None)
+        if description and description.get('events',None):
+            description['events'] += [ev for response in response_iter for ev in response.get('events', [])]
+            return decision_task_from_description(description)
+        else:
+            return None
