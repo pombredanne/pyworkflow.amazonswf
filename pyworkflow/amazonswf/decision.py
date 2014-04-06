@@ -75,6 +75,7 @@ class AmazonSWFDecision(object):
                     'version': "1.0"
                 },
                 'workflowId': str(uuid.uuid4()),
+                'childPolicy': decision.child_policy or 'ABANDON',
                 'input': json.dumps(decision.process.input),
                 'tagList': decision.process.tags
             }
