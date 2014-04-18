@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 
 from pyworkflow.process import Process, ProcessCompleted, ProcessCanceled, ProcessTimedOut
-from pyworkflow.events import Event, DecisionEvent, ActivityEvent, ActivityStartedEvent, SignalEvent, ChildProcessEvent, TimerEvent
+from pyworkflow.events import Event, DecisionEvent, ActivityEvent, ActivityStartedEvent, SignalEvent, ChildProcessEvent, TimerEvent, ProcessStartedEvent
 from pyworkflow.signal import Signal
 from pyworkflow.activity import ActivityCompleted, ActivityCanceled, ActivityFailed, ActivityTimedOut, ActivityExecution
 from pyworkflow.decision import ScheduleActivity, StartChildProcess, Timer
@@ -149,7 +149,8 @@ class AmazonSWFProcess(Process):
     @classmethod
     def event_from_description(cls, description, related=[]):
         event_type = description['eventType']
-
+        if event_type == 'WorkflowExecutionStarted':
+            return (description['eventId'], ProcessStartedEvent())
         if event_type in ['ActivityTaskScheduled','StartChildWorkflowExecutionInitiated','TimerStarted']:
             return cls._decision_event(description, related)
         if event_type.startswith('ActivityTask') and not event_type == 'ActivityTaskScheduled':
