@@ -6,6 +6,7 @@ import json
 import uuid
 import time
 import boto.swf
+import re
 
 from boto.exception import SWFResponseError
 from datetime import datetime, timedelta
@@ -19,6 +20,34 @@ from process import AmazonSWFProcess, ActivityCompleted, ActivityFailed, Activit
 from task import decision_task_from_description, activity_task_from_description
 from decision import AmazonSWFDecision
 
+def uncamelcase(name):
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+class AmazonSWFConfiguration(dict):
+
+    def config_workflow(self, name, conf):
+        self['%sWorkflow' % name] = conf
+
+    def config_activity(self, name, conf):
+        self['%sActivity' % name] = conf
+
+    def _export(self, conf, camelcase=True, prepend=''):
+        if prepend:
+            conf = dict(('%s%s%s' % (prepend, k[0].upper(), k[1:]), v) for (k,v) in conf.items())
+
+        if not camelcase:
+            conf = dict( (uncamelcase(k), v) for (k,v) in conf.items() )
+
+        return conf
+
+    def for_workflow(self, name, camelcase=True, prepend=''):
+        return self._export(self['%sWorkflow' % name], camelcase, prepend)
+
+    def for_activity(self, name, camelcase=True, prepend=''):
+        return self._export(self['%sActivity' % name], camelcase, prepend)
+
+
         
 class AmazonSWFBackend(Backend):
     
@@ -29,6 +58,7 @@ class AmazonSWFBackend(Backend):
     def __init__(self, access_key_id, secret_access_key, region='us-east-1', domain='default'):
         self.domain = domain
         self._swf = boto.swf.layer1.Layer1(access_key_id, secret_access_key, region=self._get_region(region))
+        self._config = AmazonSWFConfiguration()
 
     def _consume_until_exhaustion(self, request_fn):
         next_page_token = None
@@ -41,30 +71,36 @@ class AmazonSWFBackend(Backend):
                 break
     
     def register_workflow(self, name, timeout=Defaults.WORKFLOW_TIMEOUT, decision_timeout=Defaults.DECISION_TIMEOUT):
+        self._config.config_workflow(name, {
+            'childPolicy': 'ABANDON',
+            'executionStartToCloseTimeout': str(timeout),
+            'taskStartToCloseTimeout': str(decision_timeout),
+        })
+
         try:
             self._swf.describe_workflow_type(self.domain, name, "1.0")
         except:
             # Workflow type not registered yet
-            self._swf.register_workflow_type(self.domain, name, "1.0", 
-                task_list='decisions', 
-                default_child_policy='ABANDON',
-                default_execution_start_to_close_timeout=str(timeout),
-                default_task_start_to_close_timeout=str(decision_timeout))
+            config = self._config.for_workflow(name, camelcase=False, prepend='default')
+            self._swf.register_workflow_type(self.domain, name, "1.0", task_list='decisions', **config)
 
     def register_activity(self, name, category=Defaults.ACTIVITY_CATEGORY, 
         scheduled_timeout=Defaults.ACTIVITY_SCHEDULED_TIMEOUT, 
         execution_timeout=Defaults.ACTIVITY_EXECUTION_TIMEOUT, 
         heartbeat_timeout=Defaults.ACTIVITY_HEARTBEAT_TIMEOUT):
 
+        self._config.config_activity(name, {
+            'heartbeatTimeout': str(heartbeat_timeout),
+            'scheduleToStartTimeout': str(scheduled_timeout),
+            'scheduleToCloseTimeout': str(scheduled_timeout+execution_timeout),
+            'startToCloseTimeout': str(execution_timeout)
+        })
+
         try:
             self._swf.describe_activity_type(self.domain, name, "1.0")
         except:
-            self._swf.register_activity_type(self.domain, name, "1.0",
-                task_list=category, 
-                default_task_heartbeat_timeout=str(heartbeat_timeout),
-                default_task_schedule_to_start_timeout=str(scheduled_timeout), 
-                default_task_schedule_to_close_timeout=str(scheduled_timeout+execution_timeout), 
-                default_task_start_to_close_timeout=str(execution_timeout))
+            config = self._config.for_activity(name, camelcase=False, prepend='defaultTask')
+            self._swf.register_activity_type(self.domain, name, "1.0", task_list=category, **config)
     
     def start_process(self, process):
         if process.id is not None:
@@ -76,10 +112,15 @@ class AmazonSWFBackend(Backend):
         if process.parent is not None:
             raise ValueError('AmazonSWF does not support starting child tasks directly. Use StartChildProcess decision instead.')
 
+        config = self._config.for_workflow(process.workflow, camelcase=False)
+        if not config:
+            raise ValueError('Unknown workflow in process.workflow. Call register_workflow first.')
+
         self._swf.start_workflow_execution(
             self.domain, str(uuid.uuid4()), process.workflow, "1.0",
             input=json.dumps(process.input),
-            tag_list=process.tags)
+            tag_list=process.tags,
+            **config)
         
     def signal_process(self, process_or_id, signal, data=None):
         pid = process_or_id.id if hasattr(process_or_id, 'id') else process_or_id
@@ -100,7 +141,7 @@ class AmazonSWFBackend(Backend):
     def complete_decision_task(self, task, decisions):
         if not type(decisions) is list:
             decisions = [decisions]
-        descriptions = [AmazonSWFDecision(d).description for d in decisions]
+        descriptions = [AmazonSWFDecision(d, self._config).description for d in decisions]
 
         try:
             self._swf.respond_decision_task_completed(task.context['token'], 
