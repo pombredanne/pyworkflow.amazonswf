@@ -128,12 +128,11 @@ class AmazonSWFBackend(Backend):
             self.domain, signal, pid.split(':')[0],
             input=json.dumps(data))
 
-    def cancel_process(self, process_or_id, details=None, reason=None):
+    def cancel_process(self, process_or_id, details=None):
         pid = process_or_id.id if hasattr(process_or_id, 'id') else process_or_id
         self._swf.terminate_workflow_execution(
             self.domain, pid.split(':')[0], 
-            details=details,
-            reason=reason)
+            details=details)
 
     def heartbeat_activity_task(self, task):
         self._swf.record_activity_task_heartbeat(task.context['token'])
