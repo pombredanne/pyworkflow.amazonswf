@@ -29,7 +29,7 @@ class AmazonSWFBackendTestCase(WorkflowBackendTestCase):
         for p in backend.processes():
             backend.cancel_process(p)
 
-        self.use_sleep = True
+        self.is_external = True
 
     def tearDown(self):
         super(AmazonSWFBackendTestCase, self).tearDown()

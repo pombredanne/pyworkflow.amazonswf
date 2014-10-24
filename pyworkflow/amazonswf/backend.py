@@ -90,6 +90,7 @@ class AmazonSWFBackend(Backend):
         heartbeat_timeout=Defaults.ACTIVITY_HEARTBEAT_TIMEOUT):
 
         self._config.config_activity(name, {
+            'taskList': {'name': str(category)},
             'heartbeatTimeout': str(heartbeat_timeout),
             'scheduleToStartTimeout': str(scheduled_timeout),
             'scheduleToCloseTimeout': str(scheduled_timeout+execution_timeout),
@@ -205,7 +206,7 @@ class AmazonSWFBackend(Backend):
 
         return imap(lambda d: self._process_from_description(d), (d for response in response_iter for d in response['executionInfos']))
 
-    def poll_activity_task(self, category="default", identity=None):
+    def poll_activity_task(self, category=Defaults.ACTIVITY_CATEGORY, identity=None):
         description = self._swf.poll_for_activity_task(self.domain, category, identity=identity)
         return activity_task_from_description(description) if description else None
 
