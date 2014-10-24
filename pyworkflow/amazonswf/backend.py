@@ -70,11 +70,14 @@ class AmazonSWFBackend(Backend):
             if not next_page_token:
                 break
     
-    def register_workflow(self, name, timeout=Defaults.WORKFLOW_TIMEOUT, decision_timeout=Defaults.DECISION_TIMEOUT):
+    def register_workflow(self, name, category=Defaults.DECISION_CATEGORY,
+        timeout=Defaults.WORKFLOW_TIMEOUT, decision_timeout=Defaults.DECISION_TIMEOUT):
+
         self._config.config_workflow(name, {
+            'taskList': {'name': str(category)},
             'childPolicy': 'ABANDON',
             'executionStartToCloseTimeout': str(timeout),
-            'taskStartToCloseTimeout': str(decision_timeout),
+            'taskStartToCloseTimeout': str(decision_timeout)
         })
 
         try:
@@ -82,7 +85,8 @@ class AmazonSWFBackend(Backend):
         except:
             # Workflow type not registered yet
             config = self._config.for_workflow(name, camelcase=False, prepend='default')
-            self._swf.register_workflow_type(self.domain, name, "1.0", task_list='decisions', **config)
+            del config['default_task_list'] # don't need this in there
+            self._swf.register_workflow_type(self.domain, name, "1.0", task_list=category, **config)
 
     def register_activity(self, name, category=Defaults.ACTIVITY_CATEGORY, 
         scheduled_timeout=Defaults.ACTIVITY_SCHEDULED_TIMEOUT, 
@@ -101,6 +105,7 @@ class AmazonSWFBackend(Backend):
             self._swf.describe_activity_type(self.domain, name, "1.0")
         except:
             config = self._config.for_activity(name, camelcase=False, prepend='defaultTask')
+            del config['default_task_task_list'] # don't need this in there
             self._swf.register_activity_type(self.domain, name, "1.0", task_list=category, **config)
     
     def start_process(self, process):
@@ -116,6 +121,8 @@ class AmazonSWFBackend(Backend):
         config = self._config.for_workflow(process.workflow, camelcase=False)
         if not config:
             raise ValueError('Unknown workflow in process.workflow. Call register_workflow first.')
+
+        config['task_list'] = config['task_list']['name'] # should extract for boto
 
         self._swf.start_workflow_execution(
             self.domain, str(uuid.uuid4()), process.workflow, "1.0",
@@ -210,9 +217,9 @@ class AmazonSWFBackend(Backend):
         description = self._swf.poll_for_activity_task(self.domain, category, identity=identity)
         return activity_task_from_description(description) if description else None
 
-    def poll_decision_task(self, identity=None):
+    def poll_decision_task(self, category=Defaults.DECISION_CATEGORY, identity=None):
         response_iter = self._consume_until_exhaustion(
-            lambda token: self._swf.poll_for_decision_task(self.domain, "decisions", identity=identity, next_page_token=token),
+            lambda token: self._swf.poll_for_decision_task(self.domain, category, identity=identity, next_page_token=token),
         )
 
         description = next(response_iter, None)
