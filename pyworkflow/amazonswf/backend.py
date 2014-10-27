@@ -124,11 +124,15 @@ class AmazonSWFBackend(Backend):
 
         config['task_list'] = config['task_list']['name'] # should extract for boto
 
-        self._swf.start_workflow_execution(
-            self.domain, str(uuid.uuid4()), process.workflow, "1.0",
+        workflow_id = str(uuid.uuid4())
+        ret = self._swf.start_workflow_execution(
+            self.domain, workflow_id, process.workflow, "1.0",
             input=json.dumps(process.input),
             tag_list=process.tags,
             **config)
+
+        run_id = ret['runId']
+        return '%s:%s' % (workflow_id, run_id)
         
     def signal_process(self, process_or_id, signal, data=None):
         pid = process_or_id.id if hasattr(process_or_id, 'id') else process_or_id
