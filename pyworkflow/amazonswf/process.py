@@ -150,9 +150,11 @@ class AmazonSWFProcess(Process):
     def event_from_description(cls, description, related=[]):
         event_type = description['eventType']
         if event_type == 'WorkflowExecutionStarted':
-            return (description['eventId'], ProcessStartedEvent())
+            dt = datetime.fromtimestamp(description['eventTimestamp'])
+            return (description['eventId'], ProcessStartedEvent(datetime=dt))
         elif event_type == 'DecisionTaskStarted':
-            return (description['eventId'], DecisionStartedEvent())
+            dt = datetime.fromtimestamp(description['eventTimestamp'])
+            return (description['eventId'], DecisionStartedEvent(datetime=dt))
         elif event_type in ['ActivityTaskScheduled','StartChildWorkflowExecutionInitiated','TimerStarted']:
             return cls._decision_event(description, related)
         elif event_type.startswith('ActivityTask') and not event_type == 'ActivityTaskScheduled':
